@@ -69,6 +69,7 @@ def test_create_tesla_httpx_client_enables_http2_for_auth_mounts() -> None:
         )
 
     for transport_call in mock_transport.call_args_list:
+        assert transport_call.kwargs["http1"] is False
         assert transport_call.kwargs["http2"] is True
         assert transport_call.kwargs["verify"] is auth_context
         assert transport_call.kwargs["verify"].minimum_version == ssl.TLSVersion.TLSv1_3

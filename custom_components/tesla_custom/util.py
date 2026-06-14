@@ -121,6 +121,7 @@ def create_tesla_httpx_client(
     mounts = {
         mount_url: httpx.AsyncHTTPTransport(
             verify=auth_ssl_context,
+            http1=False,
             http2=True,
         )
         for mount_url in _auth_mount_urls(auth_domain)
