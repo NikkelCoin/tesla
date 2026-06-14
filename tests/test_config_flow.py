@@ -2,7 +2,7 @@
 
 from http import HTTPStatus
 import os
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from homeassistant import config_entries, data_entry_flow, setup
 from homeassistant.const import (
@@ -35,6 +35,7 @@ from custom_components.tesla_custom.const import (
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
+from custom_components.tesla_custom.config_flow import validate_input
 
 from .const import (
     TEST_ACCESS_TOKEN,
@@ -179,6 +180,52 @@ async def test_form_with_proxy(hass, httpx_mock):
     }
     assert len(mock_setup.mock_calls) == 1
     assert len(mock_setup_entry.mock_calls) == 1
+
+
+async def test_validate_input_uses_tesla_httpx_client(hass):
+    """Validate input uses the shared Tesla httpx client factory."""
+    mock_client = AsyncMock()
+    mock_client.aclose = AsyncMock()
+    data = {
+        CONF_USERNAME: TEST_USERNAME,
+        CONF_TOKEN: TEST_TOKEN,
+        CONF_DOMAIN: AUTH_DOMAIN,
+        CONF_INCLUDE_VEHICLES: True,
+        CONF_INCLUDE_ENERGYSITES: True,
+        CONF_API_PROXY_CERT: TEST_API_PROXY_CERT,
+        CONF_API_PROXY_URL: TEST_API_PROXY_URL,
+        CONF_CLIENT_ID: TEST_CLIENT_ID,
+    }
+
+    with (
+        patch(
+            "custom_components.tesla_custom.config_flow.async_create_tesla_httpx_client",
+            new_callable=AsyncMock,
+            return_value=mock_client,
+        ) as mock_create_client,
+        patch("custom_components.tesla_custom.config_flow.TeslaAPI") as mock_tesla_api,
+    ):
+        mock_tesla_api.return_value.connect = AsyncMock(
+            return_value={
+                "refresh_token": TEST_TOKEN,
+                CONF_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
+                CONF_EXPIRATION: TEST_VALID_EXPIRATION,
+            }
+        )
+
+        result = await validate_input(hass, data)
+
+    mock_create_client.assert_awaited_once_with(
+        hass,
+        api_proxy_cert=TEST_API_PROXY_CERT,
+        auth_domain=AUTH_DOMAIN,
+    )
+    assert mock_tesla_api.call_args.args[0] is mock_client
+    mock_tesla_api.return_value.connect.assert_awaited_once_with(test_login=True)
+    mock_client.aclose.assert_awaited_once()
+    assert result[CONF_ACCESS_TOKEN] == TEST_ACCESS_TOKEN
+    assert result[CONF_TOKEN] == TEST_TOKEN
+    assert result[CONF_API_PROXY_CERT] == TEST_API_PROXY_CERT
 
 
 async def test_form_invalid_auth(hass):

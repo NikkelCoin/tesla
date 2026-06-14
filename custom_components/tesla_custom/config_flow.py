@@ -15,7 +15,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.httpx_client import SERVER_SOFTWARE, USER_AGENT
 import httpx
 from teslajsonpy import Controller as TeslaAPI, TeslaException
 from teslajsonpy.const import AUTH_DOMAIN
@@ -42,7 +41,7 @@ from .const import (
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
-from .util import SSL_CONTEXT
+from .util import async_create_tesla_httpx_client
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -248,8 +247,10 @@ async def validate_input(hass: core.HomeAssistant, data) -> dict:
     """
 
     config = {}
-    async_client = httpx.AsyncClient(
-        headers={USER_AGENT: SERVER_SOFTWARE}, timeout=60, verify=SSL_CONTEXT
+    async_client = await async_create_tesla_httpx_client(
+        hass,
+        api_proxy_cert=data.get(CONF_API_PROXY_CERT),
+        auth_domain=data.get(CONF_DOMAIN, AUTH_DOMAIN),
     )
 
     try:
@@ -261,7 +262,6 @@ async def validate_input(hass: core.HomeAssistant, data) -> dict:
             expiration=data.get(CONF_EXPIRATION, 0),
             auth_domain=data.get(CONF_DOMAIN, AUTH_DOMAIN),
             polling_policy=data.get(CONF_POLLING_POLICY, DEFAULT_POLLING_POLICY),
-            api_proxy_cert=data.get(CONF_API_PROXY_CERT),
             api_proxy_url=data.get(CONF_API_PROXY_URL),
             client_id=data.get(CONF_CLIENT_ID),
         )
