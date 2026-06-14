@@ -5,7 +5,6 @@ from datetime import timedelta
 from functools import partial
 from http import HTTPStatus
 import logging
-import ssl
 from typing import Any
 
 import async_timeout
@@ -23,7 +22,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.event import async_call_later
-from homeassistant.helpers.httpx_client import SERVER_SOFTWARE, USER_AGENT
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 import httpx
 from teslajsonpy import Controller as TeslaAPI
@@ -49,9 +47,9 @@ from .const import (
     MIN_SCAN_INTERVAL,
     PLATFORMS,
 )
+from .httpx_client import async_load_api_proxy_cert, create_tesla_httpx_client
 from .services import async_setup_services, async_unload_services
 from .teslamate import TeslaMate
-from .util import SSL_CONTEXT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -142,22 +140,9 @@ async def async_setup_entry(hass, config_entry):
     # Because users can have multiple accounts, we always
     # create a new session so they have separate cookies
 
-    if api_proxy_cert := config.get(CONF_API_PROXY_CERT):
-        try:
-            await hass.async_add_executor_job(
-                SSL_CONTEXT.load_verify_locations, api_proxy_cert
-            )
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug("Trusting CA: %s", SSL_CONTEXT.get_ca_certs()[-1])
-        except (FileNotFoundError, ssl.SSLError):
-            _LOGGER.warning(
-                "Unable to load custom SSL certificate from %s",
-                api_proxy_cert,
-            )
+    await async_load_api_proxy_cert(hass, config.get(CONF_API_PROXY_CERT))
 
-    async_client = httpx.AsyncClient(
-        headers={USER_AGENT: SERVER_SOFTWARE}, timeout=60, verify=SSL_CONTEXT
-    )
+    async_client = create_tesla_httpx_client(config.get(CONF_DOMAIN, AUTH_DOMAIN))
     email = config_entry.title
 
     if not hass.data[DOMAIN]:

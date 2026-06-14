@@ -2,6 +2,13 @@
 
 
 
+## Unreleased
+
+### Fix
+
+* fix: enable HTTP/2 and TLS 1.3 for Tesla auth
+
+
 ## v3.25.2 (2025-07-28)
 
 ### Build
