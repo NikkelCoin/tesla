@@ -2,9 +2,9 @@
 
 from http import HTTPStatus
 import os
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from homeassistant import config_entries, data_entry_flow, setup
+from homeassistant import config_entries, setup
 from homeassistant.const import (
     CONF_ACCESS_TOKEN,
     CONF_CLIENT_ID,
@@ -35,6 +35,7 @@ from custom_components.tesla_custom.const import (
     DOMAIN,
     MIN_SCAN_INTERVAL,
 )
+from custom_components.tesla_custom.config_flow import validate_input
 
 from .const import (
     TEST_ACCESS_TOKEN,
@@ -186,7 +187,7 @@ async def test_form_invalid_auth(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    result2 = await hass.config_entries.flow.async_configure(
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={CONF_API_PROXY_ENABLE: False}
     )
     await hass.async_block_till_done()
@@ -209,7 +210,7 @@ async def test_form_invalid_auth_incomplete_credentials(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    result2 = await hass.config_entries.flow.async_configure(
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={CONF_API_PROXY_ENABLE: False}
     )
     await hass.async_block_till_done()
@@ -232,7 +233,7 @@ async def test_form_cannot_connect(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    result2 = await hass.config_entries.flow.async_configure(
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={CONF_API_PROXY_ENABLE: False}
     )
     await hass.async_block_till_done()
@@ -263,7 +264,7 @@ async def test_form_repeat_identifier(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    result2 = await hass.config_entries.flow.async_configure(
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={CONF_API_PROXY_ENABLE: False}
     )
     await hass.async_block_till_done()
@@ -300,7 +301,7 @@ async def test_form_reauth(hass):
         context={"source": config_entries.SOURCE_REAUTH, "entry_id": entry.entry_id},
         data={CONF_USERNAME: TEST_USERNAME},
     )
-    result2 = await hass.config_entries.flow.async_configure(
+    await hass.config_entries.flow.async_configure(
         result["flow_id"], user_input={CONF_API_PROXY_ENABLE: False}
     )
     await hass.async_block_till_done()
@@ -352,6 +353,50 @@ async def test_import(hass):
     assert result["data"][CONF_ACCESS_TOKEN] == TEST_ACCESS_TOKEN
     assert result["data"][CONF_TOKEN] == TEST_TOKEN
     assert result["description_placeholders"] is None
+
+
+async def test_validate_input_uses_configured_auth_domain(hass):
+    """Test validate_input builds the Tesla client for the configured auth host."""
+    auth_domain = "https://auth.example.com/oauth2/v3/token?state=test"
+    auth_ssl_context = MagicMock()
+    async_client = MagicMock()
+    async_client.aclose = AsyncMock()
+    data = {
+        CONF_TOKEN: TEST_TOKEN,
+        CONF_USERNAME: TEST_USERNAME,
+        CONF_DOMAIN: auth_domain,
+        CONF_INCLUDE_VEHICLES: True,
+        CONF_INCLUDE_ENERGYSITES: True,
+    }
+
+    with (
+        patch(
+            "custom_components.tesla_custom.config_flow.create_tesla_auth_ssl_context",
+            return_value=auth_ssl_context,
+        ),
+        patch(
+            "custom_components.tesla_custom.config_flow.create_tesla_httpx_client",
+            return_value=async_client,
+        ) as client_factory,
+        patch(
+            "custom_components.tesla_custom.config_flow.TeslaAPI",
+            autospec=True,
+        ) as controller_cls,
+    ):
+        controller_cls.return_value.connect.return_value = {
+            "refresh_token": TEST_TOKEN,
+            CONF_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
+            CONF_EXPIRATION: TEST_VALID_EXPIRATION,
+        }
+        config = await validate_input(hass, data)
+
+    client_factory.assert_called_once_with(
+        auth_ssl_context,
+        auth_domain=auth_domain,
+    )
+    assert controller_cls.call_args.kwargs["auth_domain"] == auth_domain
+    async_client.aclose.assert_awaited_once_with()
+    assert config[CONF_DOMAIN] == auth_domain
 
 
 async def test_option_flow(hass):

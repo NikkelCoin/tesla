@@ -247,8 +247,12 @@ async def validate_input(hass: core.HomeAssistant, data) -> dict:
     """
 
     config = {}
+    auth_domain = data.get(CONF_DOMAIN) or AUTH_DOMAIN
     auth_ssl_context = await hass.async_add_executor_job(create_tesla_auth_ssl_context)
-    async_client = create_tesla_httpx_client(auth_ssl_context)
+    async_client = create_tesla_httpx_client(
+        auth_ssl_context,
+        auth_domain=auth_domain,
+    )
 
     try:
         controller = TeslaAPI(
@@ -257,7 +261,7 @@ async def validate_input(hass: core.HomeAssistant, data) -> dict:
             refresh_token=data[CONF_TOKEN],
             update_interval=DEFAULT_SCAN_INTERVAL,
             expiration=data.get(CONF_EXPIRATION, 0),
-            auth_domain=data.get(CONF_DOMAIN, AUTH_DOMAIN),
+            auth_domain=auth_domain,
             polling_policy=data.get(CONF_POLLING_POLICY, DEFAULT_POLLING_POLICY),
             api_proxy_cert=data.get(CONF_API_PROXY_CERT),
             api_proxy_url=data.get(CONF_API_PROXY_URL),
@@ -268,7 +272,7 @@ async def validate_input(hass: core.HomeAssistant, data) -> dict:
         config[CONF_ACCESS_TOKEN] = result[CONF_ACCESS_TOKEN]
         config[CONF_EXPIRATION] = result[CONF_EXPIRATION]
         config[CONF_USERNAME] = data[CONF_USERNAME]
-        config[CONF_DOMAIN] = data.get(CONF_DOMAIN, AUTH_DOMAIN)
+        config[CONF_DOMAIN] = auth_domain
         config[CONF_INCLUDE_VEHICLES] = data[CONF_INCLUDE_VEHICLES]
         config[CONF_INCLUDE_ENERGYSITES] = data[CONF_INCLUDE_ENERGYSITES]
         config[CONF_API_PROXY_URL] = data.get(CONF_API_PROXY_URL)

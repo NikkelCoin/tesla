@@ -1,20 +1,36 @@
 """Tests for the Tesla integration setup and device removal."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    CONF_ACCESS_TOKEN,
+    CONF_CLIENT_ID,
+    CONF_DOMAIN,
+    CONF_TOKEN,
+    CONF_USERNAME,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 from teslajsonpy.car import TeslaCar
 from teslajsonpy.energy import SolarPowerwallSite, SolarSite
 
-from custom_components.tesla_custom import async_remove_config_entry_device
+from custom_components.tesla_custom import (
+    async_remove_config_entry_device,
+    async_setup_entry,
+)
 from custom_components.tesla_custom.base import device_identifier
-from custom_components.tesla_custom.const import DOMAIN
+from custom_components.tesla_custom.const import (
+    CONF_EXPIRATION,
+    CONF_INCLUDE_ENERGYSITES,
+    CONF_INCLUDE_VEHICLES,
+    DOMAIN,
+)
 
 from .common import setup_platform
-from .const import TEST_USERNAME
+from .const import TEST_ACCESS_TOKEN, TEST_TOKEN, TEST_USERNAME, TEST_VALID_EXPIRATION
 from .mock_data import car as car_mock_data, energysite as energysite_mock_data
 
 # Mock data ids used across the helpers below.
@@ -215,3 +231,64 @@ async def test_remove_with_real_loaded_entry(
 def test_config_entry_title_is_username() -> None:
     """Sanity check that the shared fixture username constant is wired."""
     assert TEST_USERNAME == "test-username"
+
+
+async def test_async_setup_entry_uses_configured_auth_domain(
+    hass: HomeAssistant,
+) -> None:
+    """Setup entry builds the Tesla client for the configured auth host."""
+    auth_domain = "https://auth.example.com/oauth2/v3/token?state=test"
+    auth_ssl_context = MagicMock()
+    async_client = MagicMock()
+    mock_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=TEST_USERNAME,
+        data={
+            CONF_USERNAME: TEST_USERNAME,
+            CONF_ACCESS_TOKEN: TEST_ACCESS_TOKEN,
+            CONF_TOKEN: TEST_TOKEN,
+            CONF_EXPIRATION: TEST_VALID_EXPIRATION,
+            CONF_DOMAIN: auth_domain,
+            CONF_INCLUDE_VEHICLES: True,
+            CONF_INCLUDE_ENERGYSITES: True,
+            CONF_CLIENT_ID: "ownerapi",
+        },
+        options={},
+    )
+    mock_entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.tesla_custom.create_tesla_auth_ssl_context",
+            return_value=auth_ssl_context,
+        ),
+        patch(
+            "custom_components.tesla_custom.create_tesla_httpx_client",
+            return_value=async_client,
+        ) as client_factory,
+        patch(
+            "custom_components.tesla_custom.TeslaAPI", autospec=True
+        ) as controller_cls,
+        patch("custom_components.tesla_custom.TeslaMate", autospec=True),
+        patch("custom_components.tesla_custom.async_setup_services"),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(return_value=True),
+        ),
+    ):
+        controller_cls.return_value.connect.return_value = {
+            "refresh_token": TEST_TOKEN,
+            "access_token": TEST_ACCESS_TOKEN,
+            "expiration": TEST_VALID_EXPIRATION,
+        }
+        controller_cls.return_value.generate_car_objects.return_value = {}
+        controller_cls.return_value.generate_energysite_objects.return_value = {}
+
+        assert await async_setup_entry(hass, mock_entry) is True
+
+    client_factory.assert_called_once_with(
+        auth_ssl_context,
+        auth_domain=auth_domain,
+    )
+    assert controller_cls.call_args.kwargs["auth_domain"] == auth_domain

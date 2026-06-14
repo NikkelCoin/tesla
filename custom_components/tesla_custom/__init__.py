@@ -154,8 +154,12 @@ async def async_setup_entry(hass, config_entry):
                 api_proxy_cert,
             )
 
+    auth_domain = config.get(CONF_DOMAIN) or AUTH_DOMAIN
     auth_ssl_context = await hass.async_add_executor_job(create_tesla_auth_ssl_context)
-    async_client = create_tesla_httpx_client(auth_ssl_context)
+    async_client = create_tesla_httpx_client(
+        auth_ssl_context,
+        auth_domain=auth_domain,
+    )
     email = config_entry.title
 
     if not hass.data[DOMAIN]:
@@ -175,7 +179,7 @@ async def async_setup_entry(hass, config_entry):
             refresh_token=config[CONF_TOKEN],
             access_token=config[CONF_ACCESS_TOKEN],
             expiration=config.get(CONF_EXPIRATION, 0),
-            auth_domain=config.get(CONF_DOMAIN, AUTH_DOMAIN),
+            auth_domain=auth_domain,
             update_interval=config_entry.options.get(
                 CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
             ),
